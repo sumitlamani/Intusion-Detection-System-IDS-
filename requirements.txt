@@ -1,0 +1,4 @@
+flask>=2.3.0
+scapy>=2.5.0
+Flask-Limiter>=3.3.0
+gunicorn>=21.2.0

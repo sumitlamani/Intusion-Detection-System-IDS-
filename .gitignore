@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Project specifics
+ids_data.db
+.flask_secret
+agent_key.txt
+*.log
+
+# OS
+.DS_Store

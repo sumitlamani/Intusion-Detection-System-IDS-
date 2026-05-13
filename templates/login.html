@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>IDS//SENTINEL — Login</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet"/>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  :root{
+    --bg:#060910;--bg2:#0b0f1a;--panel:#111827;
+    --border:#1e2d45;--green:#00ff88;--cyan:#00d4ff;
+    --red:#ff3355;--text:#c8d8e8;--text-dim:#5a7a9a;
+    --text-bright:#e8f4ff;--mono:'Share Tech Mono',monospace;
+    --sans:'Rajdhani',sans-serif;
+  }
+  body{
+    background:var(--bg);color:var(--text);font-family:var(--mono);
+    min-height:100vh;display:flex;align-items:center;justify-content:center;
+    overflow:hidden;
+  }
+  body::before{
+    content:'';position:fixed;inset:0;
+    background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,255,136,0.015) 2px,rgba(0,255,136,0.015) 4px);
+    pointer-events:none;z-index:9999;
+  }
+  body::after{
+    content:'';position:fixed;inset:0;
+    background-image:linear-gradient(rgba(0,212,255,0.03) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(0,212,255,0.03) 1px,transparent 1px);
+    background-size:40px 40px;pointer-events:none;
+  }
+  .login-box{
+    position:relative;z-index:1;
+    background:var(--panel);border:1px solid var(--border);
+    width:380px;padding:40px;
+  }
+  .login-box::before{
+    content:'';position:absolute;top:0;left:0;right:0;height:2px;
+    background:var(--green);box-shadow:0 0 20px var(--green);
+  }
+  .logo{
+    text-align:center;margin-bottom:32px;
+    font-family:var(--sans);font-size:22px;font-weight:700;
+    letter-spacing:3px;color:var(--text-bright);
+  }
+  .logo span{color:var(--green);}
+  .logo-sub{font-size:11px;color:var(--text-dim);letter-spacing:2px;margin-top:4px;}
+  .shield{
+    width:56px;height:56px;margin:0 auto 16px;
+    border:2px solid var(--green);display:flex;align-items:center;justify-content:center;
+    font-size:24px;position:relative;
+  }
+  .shield::after{
+    content:'';position:absolute;inset:-6px;border:1px solid rgba(0,255,136,0.2);
+    animation:shieldPulse 2s ease-in-out infinite;
+  }
+  @keyframes shieldPulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.4;transform:scale(1.05);}}
+  .form-group{margin-bottom:16px;}
+  .form-label{font-size:10px;color:var(--text-dim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;display:block;}
+  .form-input{
+    width:100%;background:var(--bg);border:1px solid var(--border);
+    color:var(--text-bright);font-family:var(--mono);font-size:13px;
+    padding:10px 12px;outline:none;transition:border-color 0.2s;
+  }
+  .form-input:focus{border-color:var(--green);}
+  .login-btn{
+    width:100%;background:rgba(0,255,136,0.08);border:1px solid var(--green);
+    color:var(--green);font-family:var(--mono);font-size:13px;font-weight:600;
+    padding:12px;cursor:pointer;letter-spacing:2px;margin-top:8px;
+    transition:all 0.2s;text-transform:uppercase;
+  }
+  .login-btn:hover{background:rgba(0,255,136,0.15);}
+  .login-btn:disabled{opacity:0.4;cursor:not-allowed;}
+  .error-msg{
+    background:rgba(255,51,85,0.1);border:1px solid rgba(255,51,85,0.3);
+    color:var(--red);font-size:11px;padding:8px 12px;margin-bottom:16px;
+    display:none;letter-spacing:0.5px;
+  }
+  .error-msg.visible{display:block;}
+  .footer{text-align:center;margin-top:24px;font-size:10px;color:var(--text-dim);letter-spacing:1px;}
+</style>
+</head>
+<body>
+<div class="login-box">
+  <div class="shield">🛡</div>
+  <div class="logo">IDS<span>//</span>SENTINEL<div class="logo-sub">INTRUSION DETECTION SYSTEM</div></div>
+  <div class="error-msg" id="error-msg">Invalid username or password</div>
+  <div class="form-group">
+    <label class="form-label">Username</label>
+    <input class="form-input" id="username" type="text" placeholder="admin" autocomplete="username"/>
+  </div>
+  <div class="form-group">
+    <label class="form-label">Password</label>
+    <input class="form-input" id="password" type="password" placeholder="••••••••" autocomplete="current-password"/>
+  </div>
+  <button class="login-btn" id="login-btn">AUTHENTICATE →</button>
+  <div class="footer">◈ SECURE ACCESS ONLY ◈ ALL ACTIVITY LOGGED ◈</div>
+</div>
+<script>
+  function doLogin() {
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    const btn = document.getElementById('login-btn');
+    const err = document.getElementById('error-msg');
+    if (!username || !password) { err.textContent='Enter username and password'; err.classList.add('visible'); return; }
+    btn.disabled = true; btn.textContent = 'AUTHENTICATING...';
+    fetch('/login', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({username, password})
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'ok') { window.location.href = '/'; }
+      else {
+        err.textContent = data.message || 'Invalid credentials';
+        err.classList.add('visible');
+        btn.disabled = false; btn.textContent = 'AUTHENTICATE →';
+      }
+    })
+    .catch(() => {
+      err.textContent = 'Connection error'; err.classList.add('visible');
+      btn.disabled = false; btn.textContent = 'AUTHENTICATE →';
+    });
+  }
+  document.getElementById('login-btn').addEventListener('click', doLogin);
+  document.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  document.getElementById('username').focus();
+</script>
+</body>
+</html>

@@ -10,10 +10,22 @@ parser = argparse.ArgumentParser(description="IDS Sentinel Agent")
 parser.add_argument("--api-key", required=True, help="Agent API Key from the Central Dashboard")
 parser.add_argument("--server", default="http://localhost:8080", help="URL of the Central Dashboard (default: http://localhost:8080)")
 parser.add_argument("--interface", help="Network interface to sniff (e.g., en0, eth0)")
+parser.add_argument("--demo", action="store_true", help="Run agent in DEMO mode (simulate traffic/attacks)")
 args = parser.parse_args()
 
 if args.interface:
     engine.config["INTERFACE"] = args.interface
+
+if args.demo:
+    engine.config["DEMO_MODE"] = True
+else:
+    # If not in demo mode, live packet capture strictly requires root privileges
+    if os.geteuid() != 0:
+        print("\n[!] FATAL ERROR: Live packet capture requires root/administrator privileges.")
+        print("    Please restart the agent using 'sudo':")
+        print(f"    sudo .venv/bin/python agent.py --api-key {args.api_key} --interface {engine.config['INTERFACE']}")
+        print("    (Alternatively, run with '--demo' to test using simulated traffic)\n")
+        os._exit(1)
 
 print(f"[*] Starting IDS Agent...")
 print(f"[*] Server URL: {args.server}")
@@ -33,7 +45,15 @@ def sync_with_server():
             current_total = len(engine.alerts)
             if current_total > last_alert_index:
                 for i in range(last_alert_index, current_total):
-                    new_alerts.append(engine.alerts[i])
+                    alert = engine.alerts[i]
+                    new_alerts.append(alert)
+                    # IPS Auto-Block logic
+                    if engine.config.get("IPS_MODE_ENABLED") and alert["severity"] in ["CRITICAL", "HIGH"]:
+                        src_ip = alert["source_ip"]
+                        if src_ip and src_ip not in engine._local_ips and src_ip != "N/A":
+                            print(f"[!] IPS AUTO-BLOCK: Dropping traffic from {src_ip}")
+                            if not engine.config.get("DEMO_MODE"):
+                                os.system(f"iptables -A INPUT -s {src_ip} -j DROP 2>/dev/null")
                 last_alert_index = current_total
                 
             # Prepare payload

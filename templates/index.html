@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>IDS — Intrusion Detection System</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   :root {
     --bg: #060910;
@@ -126,7 +128,7 @@
   .stat-sub { font-size: 10px; color: var(--text-dim); margin-top: 4px; }
 
   /* ── Content grid ── */
-  .content-grid { display: grid; grid-template-columns: 1fr 320px; gap: 16px; }
+  .content-grid { display: grid; grid-template-columns: 1fr 320px; gap: 16px; flex: 1; min-height: 0; }
 
   /* ── Panel ── */
   .panel {
@@ -394,11 +396,19 @@
       </div>
     </div>
 
+    <!-- Map Container -->
+    <div class="panel" style="height: 300px; margin-bottom: 20px;">
+      <div class="panel-header">
+        <div class="panel-title"><div class="dot orange"></div>Global Threat Map</div>
+      </div>
+      <div id="map" style="height: calc(100% - 41px); width: 100%; background: #060910;"></div>
+    </div>
+
     <!-- Content grid -->
     <div class="content-grid">
 
       <!-- Alert Feed -->
-      <div class="panel">
+      <div class="panel" style="display: flex; flex-direction: column; min-height: 0;">
         <div class="panel-header">
           <div class="panel-title">
             <div class="dot red"></div>
@@ -412,7 +422,7 @@
             <button class="clear-btn" id="clear-btn">CLEAR</button>
           </div>
         </div>
-        <div class="panel-body" style="max-height:460px;overflow-y:auto;">
+        <div class="panel-body" style="flex: 1; overflow-y: auto; position: relative; min-height: 0;">
           <table class="alert-table">
             <thead>
               <tr>
@@ -465,11 +475,7 @@
             <div class="panel-title"><div class="dot red"></div>Alert Types</div>
           </div>
           <div class="type-breakdown" id="type-breakdown">
-            <div class="type-row"><span class="type-name">PORT_SCAN</span><span class="type-count" id="t-portscan">0</span></div>
-            <div class="type-row"><span class="type-name">DDOS</span><span class="type-count" id="t-ddos">0</span></div>
-            <div class="type-row"><span class="type-name">SYN_FLOOD</span><span class="type-count" id="t-synflood">0</span></div>
-            <div class="type-row"><span class="type-name">ICMP_FLOOD</span><span class="type-count" id="t-icmpflood">0</span></div>
-            <div class="type-row"><span class="type-name">ABNORMAL_PKT</span><span class="type-count" id="t-abnormal">0</span></div>
+            <div style="color:var(--text-dim);font-size:11px;padding:8px 0;text-align:center;letter-spacing:0.5px;">NO ACTIVE ALERTS</div>
           </div>
         </div>
 
@@ -558,6 +564,30 @@
           <input class="form-input" id="cfg-pktsize" type="number" value="65000"/>
         </div>
       </div>
+      
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Discord/Slack Webhook URL</label>
+          <input class="form-input" id="cfg-webhook" type="url" placeholder="https://discord.com/api/webhooks/..."/>
+        </div>
+        <div class="form-group" style="display: flex; gap: 20px; align-items: center; margin-top: 24px;">
+          <div class="toggle">
+            <input type="checkbox" id="cfg-ips"/>
+            <span style="font-size:11px;color:var(--text-dim);">Enable IPS Auto-Block</span>
+          </div>
+          <div class="toggle">
+            <input type="checkbox" id="cfg-ai"/>
+            <span style="font-size:11px;color:var(--text-dim);">Enable AI Engine</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Gemini API Key (for RAG / AI Analysis)</label>
+          <input class="form-input" id="cfg-gemini-key" type="password" placeholder="Paste your Gemini API key here"/>
+        </div>
+      </div>
 
       <div style="border-top:1px solid var(--border);margin:16px 0;padding-top:16px;">
         <div class="form-group">
@@ -613,6 +643,7 @@
   let alertTypeCounts = {};
   let criticalCount = 0;
   let ipCache = {};
+  let threatIps = new Set();
   let pendingIps = new Set();
   
   let currentAgentId = "";
@@ -743,6 +774,10 @@
       document.getElementById('cfg-email-from').value = cfg.EMAIL_SENDER || '';
       document.getElementById('cfg-email-to').value = cfg.EMAIL_RECIPIENT || '';
       document.getElementById('cfg-email-cooldown').value = cfg.EMAIL_COOLDOWN;
+      document.getElementById('cfg-webhook').value = cfg.WEBHOOK_URL || '';
+      document.getElementById('cfg-ips').checked = cfg.IPS_MODE_ENABLED || false;
+      document.getElementById('cfg-ai').checked = cfg.AI_MODE_ENABLED || false;
+      document.getElementById('cfg-gemini-key').value = cfg.GEMINI_API_KEY || '';
       updateEmailStatus(cfg.EMAIL_ENABLED);
     });
 
@@ -845,9 +880,19 @@
     detailsTr.className = 'details-row';
     detailsTr.innerHTML = `
       <td colspan="5">
-        <div class="details-content">
-          <strong>Raw JSON Payload:</strong>
-          <pre>${escapeHTML(JSON.stringify(alert.details, null, 2))}</pre>
+        <div class="details-content" style="display:flex; gap:16px;">
+          <div style="flex:1;">
+            <strong>Raw JSON Payload:</strong>
+            <pre>${escapeHTML(JSON.stringify(alert.details, null, 2))}</pre>
+          </div>
+          <div style="flex:1;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <strong>AI Threat Analysis:</strong>
+              <button class="cfg-btn" style="border-color:var(--purple); color:var(--purple);" onclick="analyzeAlert('${alert.id}', this)">AI Analyze ✨</button>
+            </div>
+            <div class="ai-analysis-content" style="margin-top:8px; padding:12px; background:rgba(168,85,247,0.1); border:1px solid rgba(168,85,247,0.3); color:var(--text-bright); border-radius:4px; display:none; white-space:pre-wrap; font-family:var(--sans); line-height:1.5;">
+            </div>
+          </div>
         </div>
       </td>
     `;
@@ -855,6 +900,9 @@
     tbody.insertBefore(detailsTr, tbody.firstChild);
     tbody.insertBefore(tr, detailsTr);
 
+    if (alert.source_ip) {
+      threatIps.add(alert.source_ip);
+    }
     requestGeoIP(alert.source_ip);
 
     // Cap rows in DOM (count is doubled due to details-row)
@@ -874,18 +922,52 @@
     filtered.slice(0, 50).forEach(a => prependAlertRow(a, false));
   }
 
+  async function analyzeAlert(alertId, btn) {
+    const container = btn.parentElement.nextElementSibling;
+    container.style.display = 'block';
+    container.innerHTML = '<div style="color:var(--text-dim);">Analyzing threat with Gemini...</div>';
+    try {
+      const res = await fetch('/api/rag/analyze', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({alert_id: alertId})
+      });
+      const data = await res.json();
+      if (data.error) {
+        container.innerHTML = `<div style="color:var(--red);">Error: ${data.error}</div>`;
+      } else {
+        container.innerHTML = data.analysis.replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--purple);">$1</strong>');
+      }
+    } catch(e) {
+      container.innerHTML = `<div style="color:var(--red);">Error: ${e}</div>`;
+    }
+  }
+
   function recountTypes() {
-    const counts = { PORT_SCAN: 0, DDOS: 0, SYN_FLOOD: 0, ICMP_FLOOD: 0, ABNORMAL_PACKET: 0 };
+    const counts = {};
     let crit = 0;
     allAlerts.forEach(a => {
-      if (counts[a.alert_type] !== undefined) counts[a.alert_type]++;
+      counts[a.alert_type] = (counts[a.alert_type] || 0) + 1;
       if (a.severity === 'CRITICAL') crit++;
     });
-    setText('t-portscan', counts.PORT_SCAN);
-    setText('t-ddos', counts.DDOS);
-    setText('t-synflood', counts.SYN_FLOOD);
-    setText('t-icmpflood', counts.ICMP_FLOOD);
-    setText('t-abnormal', counts.ABNORMAL_PACKET);
+
+    const breakdownEl = document.getElementById('type-breakdown');
+    if (breakdownEl) {
+      if (Object.keys(counts).length === 0) {
+        breakdownEl.innerHTML = '<div style="color:var(--text-dim);font-size:11px;padding:8px 0;text-align:center;letter-spacing:0.5px;">NO ACTIVE ALERTS</div>';
+      } else {
+        // Sort by count descending
+        const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+        breakdownEl.innerHTML = sorted.map(([type, cnt]) => {
+          const formattedType = type.replace(/_/g, ' ');
+          return `<div class="type-row">
+            <span class="type-name">${escapeHTML(formattedType)}</span>
+            <span class="type-count">${cnt}</span>
+          </div>`;
+        }).join('');
+      }
+    }
+    
     setText('stat-critical', crit);
   }
 
@@ -935,6 +1017,10 @@
       EMAIL_RECIPIENT: document.getElementById('cfg-email-to').value,
       EMAIL_COOLDOWN: parseInt(document.getElementById('cfg-email-cooldown').value),
       VT_API_KEY: document.getElementById('cfg-vt-key').value,
+      WEBHOOK_URL: document.getElementById('cfg-webhook').value,
+      IPS_MODE_ENABLED: document.getElementById('cfg-ips').checked,
+      AI_MODE_ENABLED: document.getElementById('cfg-ai').checked,
+      GEMINI_API_KEY: document.getElementById('cfg-gemini-key').value,
     };
     fetch('/api/config', {
       method: 'POST',
@@ -952,7 +1038,11 @@
     el.style.color = on ? 'var(--green)' : 'var(--red)';
   }
 
-  // ── GeoIP & VT ─────────────────────────────────────────────────────────────
+  // ── GeoIP, VT & Map ─────────────────────────────────────────────────────────────
+  let map = L.map('map', { zoomControl: false, attributionControl: false }).setView([20, 0], 2);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+  let mapMarkers = {};
+
   function requestGeoIP(ip) {
     if (ipCache[ip]) {
       updateFlagUI(ip, ipCache[ip]);
@@ -967,6 +1057,14 @@
     const flag = getFlagEmoji(geo.countryCode);
     document.querySelectorAll('#flag-' + safeIp).forEach(el => el.textContent = flag);
     document.querySelectorAll('#tflag-' + safeIp).forEach(el => el.textContent = flag);
+    
+    if (geo.lat && geo.lon && !mapMarkers[ip] && threatIps.has(ip)) {
+       let circle = L.circleMarker([geo.lat, geo.lon], {
+          radius: 6, fillColor: '#ff3355', color: '#ff3355', weight: 1, opacity: 1, fillOpacity: 0.8
+       }).addTo(map);
+       circle.bindPopup(`<div style="background:#111827;color:#c8d8e8;padding:5px;"><b>${ip}</b><br>${geo.city}, ${geo.country}</div>`);
+       mapMarkers[ip] = circle;
+    }
   }
 
   function getFlagEmoji(countryCode) {
@@ -1060,6 +1158,85 @@
     const sc = (s%60).toString().padStart(2,'0');
     return `${h}:${m}:${sc}`;
   }
+  // ── SOC Chat ─────────────────────────────────────────────────────────────
+  const chatToggle = document.getElementById('soc-chat-toggle');
+  const chatBox = document.getElementById('soc-chat-box');
+  const chatClose = document.getElementById('soc-chat-close');
+  const chatInput = document.getElementById('soc-chat-input');
+  const chatSend = document.getElementById('soc-chat-send');
+  const chatMessages = document.getElementById('soc-chat-messages');
+
+  chatToggle.addEventListener('click', () => {
+    chatBox.style.display = chatBox.style.display === 'none' || chatBox.style.display === '' ? 'flex' : 'none';
+  });
+  chatClose.addEventListener('click', () => chatBox.style.display = 'none');
+
+  async function sendChatMessage() {
+    const text = chatInput.value.trim();
+    if (!text) return;
+    
+    const userMsg = document.createElement('div');
+    userMsg.style = 'align-self:flex-end; background:var(--border); padding:8px 12px; border-radius:8px; max-width:85%; color:var(--text-bright);';
+    userMsg.textContent = text;
+    chatMessages.appendChild(userMsg);
+    chatInput.value = '';
+    
+    const aiMsg = document.createElement('div');
+    aiMsg.style = 'align-self:flex-start; background:rgba(168,85,247,0.1); border:1px solid rgba(168,85,247,0.3); padding:8px 12px; border-radius:8px; max-width:85%; color:var(--text-dim);';
+    aiMsg.textContent = 'Thinking...';
+    chatMessages.appendChild(aiMsg);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    try {
+      const res = await fetch('/api/rag/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({query: text})
+      });
+      const data = await res.json();
+      aiMsg.style.color = 'var(--text-bright)';
+      if (data.error) {
+        aiMsg.style.color = 'var(--red)';
+        aiMsg.textContent = 'Error: ' + data.error;
+      } else {
+        let html = data.response
+          .replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--purple);">$1</strong>')
+          .replace(/\n/g, '<br>');
+        aiMsg.innerHTML = html;
+      }
+    } catch(e) {
+      aiMsg.style.color = 'var(--red)';
+      aiMsg.textContent = 'Error: ' + e;
+    }
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  chatSend.addEventListener('click', sendChatMessage);
+  chatInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendChatMessage();
+  });
 </script>
+
+<!-- SOC Chat Widget -->
+<div id="soc-chat-widget" style="position:fixed; bottom:20px; right:20px; z-index:1000; display:flex; flex-direction:column; align-items:flex-end;">
+  <div id="soc-chat-box" style="display:none; width:350px; height:450px; background:var(--bg2); border:1px solid var(--purple); border-radius:8px; margin-bottom:12px; flex-direction:column; overflow:hidden; box-shadow:0 8px 24px rgba(0,0,0,0.5);">
+    <div style="background:var(--panel); border-bottom:1px solid var(--purple); padding:12px 16px; font-family:var(--sans); font-weight:700; color:var(--purple); display:flex; justify-content:space-between;">
+      <span>SOC AI ASSISTANT</span>
+      <button id="soc-chat-close" style="background:none; border:none; color:var(--text-dim); cursor:pointer; font-size:16px;">✕</button>
+    </div>
+    <div id="soc-chat-messages" style="flex:1; padding:16px; overflow-y:auto; display:flex; flex-direction:column; gap:12px; font-size:12px; font-family:var(--sans);">
+      <div style="align-self:flex-start; background:rgba(168,85,247,0.1); border:1px solid rgba(168,85,247,0.3); padding:8px 12px; border-radius:8px; max-width:85%;">
+        Hello! I'm your SOC AI Assistant. I have context on all recent network alerts. Ask me anything about the current threat landscape.
+      </div>
+    </div>
+    <div style="border-top:1px solid var(--border); padding:12px; display:flex; gap:8px;">
+      <input type="text" id="soc-chat-input" placeholder="Ask about recent alerts..." style="flex:1; background:var(--bg); border:1px solid var(--border); color:var(--text-bright); padding:8px 12px; outline:none; font-family:var(--sans); font-size:12px; border-radius:4px;">
+      <button id="soc-chat-send" style="background:var(--purple); color:#fff; border:none; padding:8px 16px; cursor:pointer; font-family:var(--sans); font-weight:600; border-radius:4px;">SEND</button>
+    </div>
+  </div>
+  <button id="soc-chat-toggle" style="background:var(--purple); color:#fff; border:none; border-radius:50%; width:56px; height:56px; font-size:24px; cursor:pointer; box-shadow:0 4px 12px rgba(168,85,247,0.4); display:flex; justify-content:center; align-items:center;">
+    💬
+  </button>
+</div>
 </body>
 </html>

@@ -4,8 +4,9 @@ import os
 os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
 from ids_engine import CONFIG
 import json, time, urllib.request, urllib.error
-import sqlite3, secrets
+import sqlite3, secrets, threading, requests
 from functools import wraps
+from rag_engine import RAGEngine
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
@@ -31,6 +32,7 @@ def get_secret_key():
 app.secret_key = get_secret_key()
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "ids_data.db")
+rag_engine = RAGEngine(DB_PATH)
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -119,6 +121,8 @@ def load_config_from_db():
         conn.close()
         for row in rows:
             CONFIG[row["key"]] = json.loads(row["value"])
+            if row["key"] == "GEMINI_API_KEY":
+                rag_engine.configure(CONFIG["GEMINI_API_KEY"])
     except: pass
 
 load_config_from_db()
@@ -309,6 +313,19 @@ def agent_sync():
     for a in new_alerts:
         conn.execute("INSERT OR IGNORE INTO alerts (id, timestamp, alert_type, severity, source_ip, dest_ip, description, packet_count, details, agent_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (a["id"], a["timestamp"], a["alert_type"], a["severity"], a["source_ip"], a["dest_ip"], a["description"], a["packet_count"], json.dumps(a.get("details", {})), agent_id))
+        
+        # Fire Webhook if configured
+        webhook_url = CONFIG.get("WEBHOOK_URL")
+        if webhook_url and a["severity"] in ["CRITICAL", "HIGH"]:
+            def send_webhook(url, alert_data):
+                try:
+                    payload = {
+                        "content": f"🚨 **IDS ALERT [{alert_data['severity']}]** 🚨\n**Type:** {alert_data['alert_type']}\n**Source:** {alert_data['source_ip']}\n**Desc:** {alert_data['description']}"
+                    }
+                    requests.post(url, json=payload, timeout=5)
+                except:
+                    pass
+            threading.Thread(target=send_webhook, args=(webhook_url, a), daemon=True).start()
              
     conn.commit()
     conn.close()
@@ -327,12 +344,15 @@ def update_config():
     allowed = ["PORT_SCAN_THRESHOLD","PORT_SCAN_WINDOW","DDOS_PPS_THRESHOLD","DDOS_WINDOW",
                "SYN_FLOOD_THRESHOLD","ICMP_FLOOD_THRESHOLD","ABNORMAL_PACKET_SIZE",
                "EMAIL_ENABLED","EMAIL_SENDER","EMAIL_PASSWORD","EMAIL_RECIPIENT",
-               "EMAIL_COOLDOWN","VT_API_KEY","DEMO_MODE","INTERFACE"]
+               "EMAIL_COOLDOWN","VT_API_KEY","DEMO_MODE","INTERFACE",
+               "WEBHOOK_URL", "IPS_MODE_ENABLED", "AI_MODE_ENABLED", "GEMINI_API_KEY"]
     conn = get_db()
     for k, v in data.items():
         if k in allowed:
             CONFIG[k] = v
             conn.execute("INSERT OR REPLACE INTO config_store (key,value) VALUES (?,?)", (k, json.dumps(v)))
+            if k == "GEMINI_API_KEY":
+                rag_engine.configure(v)
     conn.commit(); conn.close()
     return jsonify({"status":"ok"})
 
@@ -447,6 +467,36 @@ def stream():
             
     # pyrefly: ignore [no-matching-overload]
     return Response(stream_with_context(gen()), mimetype="text/event-stream", headers={"Cache-Control":"no-cache","X-Accel-Buffering":"no"})
+
+@app.route("/api/rag/analyze", methods=["POST"])
+@login_required
+def rag_analyze():
+    data = request.get_json() or {}
+    alert_id = data.get("alert_id")
+    if not alert_id:
+        return jsonify({"error": "alert_id is required"}), 400
+        
+    conn = get_db()
+    row = conn.execute("SELECT * FROM alerts WHERE id=?", (alert_id,)).fetchone()
+    conn.close()
+    
+    if not row:
+        return jsonify({"error": "Alert not found"}), 404
+        
+    alert_data = dict(row)
+    result = rag_engine.analyze_alert(alert_data)
+    return jsonify(result)
+
+@app.route("/api/rag/chat", methods=["POST"])
+@login_required
+def rag_chat():
+    data = request.get_json() or {}
+    query = data.get("query")
+    if not query:
+        return jsonify({"error": "query is required"}), 400
+        
+    result = rag_engine.chat(query)
+    return jsonify(result)
 
 if __name__ == "__main__":
     print("\n\033[1;96m    IDS//SENTINEL v3\033[0m")

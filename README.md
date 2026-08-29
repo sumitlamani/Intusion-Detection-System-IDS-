@@ -9,6 +9,7 @@ A distributed, web-based IDS built with Python (Scapy + Flask) featuring a dark 
 ## Features
 
 - **Distributed Agent Architecture** — Deploy lightweight sniffing agents across multiple nodes that report back to a central dashboard.
+- **SOC AI Assistant (RAG Engine)** — Integrated Gemini AI to analyze network alerts, correlate attack patterns, and provide actionable mitigation steps.
 - **Port Scan Detection** — Detects horizontal/vertical port scanning in configurable time windows.
 - **DDoS Pattern Detection** — Flags IPs exceeding packet-per-second thresholds.
 - **SYN Flood Detection** — Catches TCP SYN floods (no ACK handshake completion).
@@ -93,6 +94,15 @@ To capture live traffic instead of simulated demo traffic:
 
 ---
 
+## SOC AI Assistant (Gemini) Setup
+
+1. Generate a free API key from Google AI Studio.
+2. Open the dashboard → click **⚙ CONFIG**.
+3. Under the AI Assistant section, enter your `GEMINI_API_KEY`.
+4. The dashboard will now provide AI-driven analysis for alerts and a chat interface for your SOC analysts.
+
+---
+
 ## API Endpoints
 
 | Method | Endpoint              | Description                                      |
@@ -103,6 +113,8 @@ To capture live traffic instead of simulated demo traffic:
 | GET    | /api/stream           | SSE real-time stream                             |
 | POST   | /api/agent/sync       | Agent synchronization endpoint (Requires API Key)|
 | POST   | /api/config           | Update global config                             |
+| POST   | /api/rag/analyze      | AI analysis of a specific network alert          |
+| POST   | /api/rag/chat         | AI chat assistant for SOC queries                |
 
 ---
 
@@ -113,6 +125,7 @@ ids_project/
 ├── app.py              # Central Flask web server + REST API + Dashboard
 ├── agent.py            # Remote agent script for packet sniffing and reporting
 ├── ids_engine.py       # IDS engine (packet capture, detection) used by the agent
+├── rag_engine.py       # SOC AI Assistant integration (Gemini API)
 ├── start_server.sh     # Gunicorn startup script for the production dashboard
 ├── requirements.txt    # Python dependencies
 ├── templates/

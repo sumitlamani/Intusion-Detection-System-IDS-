@@ -6,7 +6,6 @@ from ids_engine import CONFIG
 import json, time, urllib.request, urllib.error
 import sqlite3, secrets, threading, requests
 from functools import wraps
-from rag_engine import RAGEngine
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
@@ -32,7 +31,6 @@ def get_secret_key():
 app.secret_key = get_secret_key()
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "ids_data.db")
-rag_engine = RAGEngine(DB_PATH)
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -121,8 +119,6 @@ def load_config_from_db():
         conn.close()
         for row in rows:
             CONFIG[row["key"]] = json.loads(row["value"])
-            if row["key"] == "GEMINI_API_KEY":
-                rag_engine.configure(CONFIG["GEMINI_API_KEY"])
     except: pass
 
 load_config_from_db()
@@ -345,14 +341,12 @@ def update_config():
                "SYN_FLOOD_THRESHOLD","ICMP_FLOOD_THRESHOLD","ABNORMAL_PACKET_SIZE",
                "EMAIL_ENABLED","EMAIL_SENDER","EMAIL_PASSWORD","EMAIL_RECIPIENT",
                "EMAIL_COOLDOWN","VT_API_KEY","DEMO_MODE","INTERFACE",
-               "WEBHOOK_URL", "IPS_MODE_ENABLED", "AI_MODE_ENABLED", "GEMINI_API_KEY"]
+               "WEBHOOK_URL", "IPS_MODE_ENABLED", "AI_MODE_ENABLED"]
     conn = get_db()
     for k, v in data.items():
         if k in allowed:
             CONFIG[k] = v
             conn.execute("INSERT OR REPLACE INTO config_store (key,value) VALUES (?,?)", (k, json.dumps(v)))
-            if k == "GEMINI_API_KEY":
-                rag_engine.configure(v)
     conn.commit(); conn.close()
     return jsonify({"status":"ok"})
 

@@ -389,10 +389,10 @@
         <div class="stat-value orange" id="stat-critical">0</div>
         <div class="stat-sub">high severity</div>
       </div>
-      <div class="stat-card purple">
+      <div class="stat-card green">
         <div class="stat-label">Mode</div>
-        <div class="stat-value" id="stat-mode" style="font-size:16px;color:#a855f7;">DEMO</div>
-        <div class="stat-sub" id="stat-mode-sub">simulation on</div>
+        <div class="stat-value" id="stat-mode" style="font-size:16px;color:var(--green);">LIVE</div>
+        <div class="stat-sub" id="stat-mode-sub">real traffic</div>
       </div>
     </div>
 
@@ -495,7 +495,7 @@
 
   <!-- Bottom bar -->
   <div class="bottom-bar">
-    <div class="bottom-item">◈ INTERFACE: <span id="bbar-iface" style="color:var(--cyan);margin-left:4px;">DEMO</span></div>
+    <div class="bottom-item">◈ INTERFACE: <span id="bbar-iface" style="color:var(--green);margin-left:4px;">LIVE</span></div>
     <div class="bottom-item">◈ ENGINE: <span style="color:var(--green);margin-left:4px;">ACTIVE</span></div>
     <div class="bottom-item">◈ EMAIL: <span id="bbar-email" style="color:var(--red);margin-left:4px;">OFF</span></div>
     <button class="cfg-btn" id="config-btn">⚙ CONFIG</button>
@@ -786,7 +786,7 @@
     if (!s || Object.keys(s).length === 0) {
       s = {
         total_packets: 0, packets_per_sec: 0, alerts_triggered: 0,
-        uptime_seconds: 0, demo_mode: true, interface: 'unknown'
+        uptime_seconds: 0, demo_mode: false, interface: 'LIVE'
       };
     }
     setText('stat-packets', fmtNum(s.total_packets));
@@ -794,19 +794,19 @@
     setText('stat-alerts', s.alerts_triggered);
     const modeEl = document.getElementById('stat-mode');
     const modeSubEl = document.getElementById('stat-mode-sub');
-    if (s.demo_mode === false) {
-      modeEl.textContent = 'LIVE'; modeEl.style.color = 'var(--green)';
-      if (modeSubEl) modeSubEl.textContent = 'real traffic';
-    } else {
+    if (s.demo_mode === true) {
       modeEl.textContent = 'DEMO'; modeEl.style.color = '#a855f7';
       if (modeSubEl) modeSubEl.textContent = 'simulation on';
+    } else {
+      modeEl.textContent = 'LIVE'; modeEl.style.color = 'var(--green)';
+      if (modeSubEl) modeSubEl.textContent = 'real traffic';
     }
     setText('uptime-val', fmtUptime(s.uptime_seconds));
     if (s.interface) {
       const ifaceEl = document.getElementById('bbar-iface');
       if (ifaceEl) {
         ifaceEl.textContent = s.interface;
-        ifaceEl.style.color = s.demo_mode === false ? 'var(--green)' : 'var(--cyan)';
+        ifaceEl.style.color = s.demo_mode === true ? '#a855f7' : 'var(--green)';
       }
     }
 
@@ -824,15 +824,18 @@
     const talkers = s.top_talkers || {};
     const talkerEl = document.getElementById('talker-list');
     const entries = Object.entries(talkers).slice(0, 8);
-    if (entries.length === 0) return;
-    talkerEl.innerHTML = entries.map(([ip, cnt]) => {
-      requestGeoIP(ip);
-      const safeIp = ip.replace(/\./g, '-');
-      return `<div class="talker-item">
-        <span><span class="flag" id="tflag-${safeIp}"></span><span class="ip-link" onclick="openVT('${ip}')">${ip}</span></span>
-        <span class="talker-count">${fmtNum(cnt)}</span>
-      </div>`;
-    }).join('');
+    if (entries.length === 0) {
+      talkerEl.innerHTML = '<div class="talker-item" style="color:var(--text-dim);font-size:11px;padding:6px 0;text-align:center;">Listening for active IP streams...</div>';
+    } else {
+      talkerEl.innerHTML = entries.map(([ip, cnt]) => {
+        requestGeoIP(ip);
+        const safeIp = ip.replace(/\./g, '-');
+        return `<div class="talker-item" style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(30,45,69,0.3);">
+          <span><span class="flag" id="tflag-${safeIp}"></span><span class="ip-link" onclick="openVT('${ip}')">${escapeHTML(ip)}</span></span>
+          <span class="talker-count" style="background:rgba(0,255,136,0.1);color:var(--green);padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;">${fmtNum(cnt)} pkts</span>
+        </div>`;
+      }).join('');
+    }
   }
 
   // ── Alert Management ───────────────────────────────────────────────────────
@@ -960,9 +963,9 @@
         const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
         breakdownEl.innerHTML = sorted.map(([type, cnt]) => {
           const formattedType = type.replace(/_/g, ' ');
-          return `<div class="type-row">
-            <span class="type-name">${escapeHTML(formattedType)}</span>
-            <span class="type-count">${cnt}</span>
+          return `<div class="type-row" style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(30,45,69,0.3);">
+            <span class="type-name" style="color:var(--cyan);font-weight:600;letter-spacing:0.5px;">${escapeHTML(formattedType)}</span>
+            <span class="type-count" style="background:rgba(255,51,85,0.15);color:var(--red);padding:2px 8px;border-radius:3px;font-size:12px;font-weight:700;">${cnt}</span>
           </div>`;
         }).join('');
       }
@@ -1040,7 +1043,9 @@
 
   // ── GeoIP, VT & Map ─────────────────────────────────────────────────────────────
   let map = L.map('map', { zoomControl: false, attributionControl: false }).setView([20, 0], 2);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 16
+  }).addTo(map);
   let mapMarkers = {};
 
   function requestGeoIP(ip) {
@@ -1153,90 +1158,12 @@
     return n >= 1000000 ? (n/1000000).toFixed(1)+'M' : n >= 1000 ? (n/1000).toFixed(1)+'K' : n;
   }
   function fmtUptime(s) {
+    if (s === undefined || s === null || isNaN(s) || s < 0) return '00:00:00';
     const h = Math.floor(s/3600).toString().padStart(2,'0');
     const m = Math.floor((s%3600)/60).toString().padStart(2,'0');
-    const sc = (s%60).toString().padStart(2,'0');
+    const sc = (Math.floor(s%60)).toString().padStart(2,'0');
     return `${h}:${m}:${sc}`;
   }
-  // ── SOC Chat ─────────────────────────────────────────────────────────────
-  const chatToggle = document.getElementById('soc-chat-toggle');
-  const chatBox = document.getElementById('soc-chat-box');
-  const chatClose = document.getElementById('soc-chat-close');
-  const chatInput = document.getElementById('soc-chat-input');
-  const chatSend = document.getElementById('soc-chat-send');
-  const chatMessages = document.getElementById('soc-chat-messages');
-
-  chatToggle.addEventListener('click', () => {
-    chatBox.style.display = chatBox.style.display === 'none' || chatBox.style.display === '' ? 'flex' : 'none';
-  });
-  chatClose.addEventListener('click', () => chatBox.style.display = 'none');
-
-  async function sendChatMessage() {
-    const text = chatInput.value.trim();
-    if (!text) return;
-    
-    const userMsg = document.createElement('div');
-    userMsg.style = 'align-self:flex-end; background:var(--border); padding:8px 12px; border-radius:8px; max-width:85%; color:var(--text-bright);';
-    userMsg.textContent = text;
-    chatMessages.appendChild(userMsg);
-    chatInput.value = '';
-    
-    const aiMsg = document.createElement('div');
-    aiMsg.style = 'align-self:flex-start; background:rgba(168,85,247,0.1); border:1px solid rgba(168,85,247,0.3); padding:8px 12px; border-radius:8px; max-width:85%; color:var(--text-dim);';
-    aiMsg.textContent = 'Thinking...';
-    chatMessages.appendChild(aiMsg);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-
-    try {
-      const res = await fetch('/api/rag/chat', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({query: text})
-      });
-      const data = await res.json();
-      aiMsg.style.color = 'var(--text-bright)';
-      if (data.error) {
-        aiMsg.style.color = 'var(--red)';
-        aiMsg.textContent = 'Error: ' + data.error;
-      } else {
-        let html = data.response
-          .replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--purple);">$1</strong>')
-          .replace(/\n/g, '<br>');
-        aiMsg.innerHTML = html;
-      }
-    } catch(e) {
-      aiMsg.style.color = 'var(--red)';
-      aiMsg.textContent = 'Error: ' + e;
-    }
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-  }
-
-  chatSend.addEventListener('click', sendChatMessage);
-  chatInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') sendChatMessage();
-  });
 </script>
-
-<!-- SOC Chat Widget -->
-<div id="soc-chat-widget" style="position:fixed; bottom:20px; right:20px; z-index:1000; display:flex; flex-direction:column; align-items:flex-end;">
-  <div id="soc-chat-box" style="display:none; width:350px; height:450px; background:var(--bg2); border:1px solid var(--purple); border-radius:8px; margin-bottom:12px; flex-direction:column; overflow:hidden; box-shadow:0 8px 24px rgba(0,0,0,0.5);">
-    <div style="background:var(--panel); border-bottom:1px solid var(--purple); padding:12px 16px; font-family:var(--sans); font-weight:700; color:var(--purple); display:flex; justify-content:space-between;">
-      <span>SOC AI ASSISTANT</span>
-      <button id="soc-chat-close" style="background:none; border:none; color:var(--text-dim); cursor:pointer; font-size:16px;">✕</button>
-    </div>
-    <div id="soc-chat-messages" style="flex:1; padding:16px; overflow-y:auto; display:flex; flex-direction:column; gap:12px; font-size:12px; font-family:var(--sans);">
-      <div style="align-self:flex-start; background:rgba(168,85,247,0.1); border:1px solid rgba(168,85,247,0.3); padding:8px 12px; border-radius:8px; max-width:85%;">
-        Hello! I'm your SOC AI Assistant. I have context on all recent network alerts. Ask me anything about the current threat landscape.
-      </div>
-    </div>
-    <div style="border-top:1px solid var(--border); padding:12px; display:flex; gap:8px;">
-      <input type="text" id="soc-chat-input" placeholder="Ask about recent alerts..." style="flex:1; background:var(--bg); border:1px solid var(--border); color:var(--text-bright); padding:8px 12px; outline:none; font-family:var(--sans); font-size:12px; border-radius:4px;">
-      <button id="soc-chat-send" style="background:var(--purple); color:#fff; border:none; padding:8px 16px; cursor:pointer; font-family:var(--sans); font-weight:600; border-radius:4px;">SEND</button>
-    </div>
-  </div>
-  <button id="soc-chat-toggle" style="background:var(--purple); color:#fff; border:none; border-radius:50%; width:56px; height:56px; font-size:24px; cursor:pointer; box-shadow:0 4px 12px rgba(168,85,247,0.4); display:flex; justify-content:center; align-items:center;">
-    💬
-  </button>
-</div>
 </body>
 </html>
